@@ -27,3 +27,17 @@ doable in Weeks 8–9, and there are no blockers or dependencies.
 **Setup confirmation:** [x] App runs locally at localhost:5173
 
 **Cohort ledger:** [ ] Issue added to cohort ledger
+
+## Week 8 — Reproduction & solution planning
+
+**Reproduction commit link:** https://github.com/ShelDaD0n/pathreview/commit/89824ba
+
+**Reproduction summary:**
+I traced the delete path and wrote a failing unit test (`tests/unit/test_profile_cascade_delete.py`) that seeds a `profile_{id}` ChromaDB collection, deletes the profile through the real `delete_profile()` service, and checks the collection is gone. It fails: the DB rows get cleaned up (the service even logs `profile_deleted_cascade`), but the embeddings collection is still there — so every deleted profile leaks its vectors. The reviews/ingested-sources are already handled by the code + `ondelete=CASCADE`, so the embeddings are the real gap.
+
+**PLAN.md link:** https://github.com/ShelDaD0n/pathreview/blob/fix/80-cascade-delete-profile/PLAN.md
+
+**Walkthrough video (recommended):** [optional — Loom link if I record one, ≤2 min]
+
+**Blockers or open questions:**
+Two things I want to nail down before writing the fix in Week 9: (1) `core/config.py` points at an HTTP Chroma server (`vector_db_url`) while `VectorStore` uses a local `PersistentClient` — I need to confirm which one the running app actually uses so I clean up the right store. (2) Postgres and Chroma aren't in one transaction, so I need to decide the failure policy if the SQL delete succeeds but the Chroma delete fails.
