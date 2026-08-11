@@ -63,17 +63,48 @@ None on the code. Tooling friction only: a stale `.git/index.lock` from an earli
 
 ### Check-in 2 (end of week)
 
-**PR link:** [paste after opening]
+**PR link:** https://github.com/ascherj/pathreview/pull/880
 
 **Branch:** `fix/80-cascade-delete-profile`
 
 **What you built:**
-[fill in after PR is open — summary already drafted in the PR description]
+`delete_profile()` now cleans up a profile's ChromaDB embeddings, not just its Postgres rows. Added `VectorStore.delete_collection()` (idempotent) and a shared `collection_name_for_profile()` helper so the retrieval path and the delete path can't name collections differently, then wired the cleanup into `delete_profile()` as a best-effort step after the SQL commit — a Chroma failure is logged, not raised, so it can't turn an already-successful delete into a 500.
 
 **Tests added or updated:**
-`tests/unit/test_profile_cascade_delete.py` (Week 8 reproduction test, flipped to green + no-op case) and `tests/unit/test_profile_service.py` (full `delete_profile()` cascade coverage) — 8 tests total, all passing.
+`tests/unit/test_profile_cascade_delete.py` (Week 8 reproduction test, flipped to green + no-op case) and `tests/unit/test_profile_service.py` (full `delete_profile()` cascade coverage: not-found, no-orphans, single-commit, empty-cascade, rollback-and-reraise, Chroma-failure-after-commit) — 8 tests total, all passing.
 
-**Self-review confirmation:** [ ] make check passes  [ ] make test-unit passes
+**Self-review confirmation:** [x] make check passes  [x] make test-unit passes
 *(In this codebase, "passes" = introduces no new failures — 53 pre-existing `make test-unit` failures and repo-wide `make lint`/`make typecheck` failures are documented in the PR description, confirmed unrelated to and unaffected by this change.)*
 
-**Draft PR feedback received from:** [name or Slack handle, or "none"]
+**Draft PR feedback received from:** none — no peer/mentor review came in before marking the PR ready
+
+## Week 10 — Iteration & reflection
+
+### Reviewer feedback
+
+**Feedback received:** [ ] Yes  [x] No — still awaiting review
+
+**Summary of feedback:**
+No comments or reviews landed on PR #880. Su26 doesn't have an active reviewer-feedback mechanism this term, so this isn't a gap on my end — I opened the PR as a draft in Week 9, left it open for feedback, and marked it ready for review in Week 10 once it was clear none was coming.
+
+**How you responded:**
+N/A — nothing to respond to. If feedback arrives after submission, I'll come back and update this section.
+
+---
+
+### Reflection
+
+**What was harder than you expected?**
+Telling "my bug" apart from "the codebase's pre-existing debt" was the real work of Weeks 8–9, not the fix itself. The actual cascade-delete logic — add a `delete_collection()` method, call it after the commit — was maybe 20 lines. But `make check` fails on this repo regardless of what you touch: hundreds of ruff violations in files I never opened, black wanting to reformat code that predates my branch, and `make typecheck` crashing outright on a numpy/mypy version mismatch before it even reaches the files I changed. The first time I hit this (Week 8, `profile_service.py`'s pre-existing mypy errors) I almost just fixed it, which would have blown my diff way past issue #80. Figuring out the discipline — diff against `main`, confirm the exact same errors on the exact same lines exist without my change, only then decide whether to leave it alone or `--no-verify` — took longer than writing the fix.
+
+**What did you learn about working in a large codebase?**
+"Passes cleanly" isn't always an available option in an inherited codebase, and treating it as the bar is actually the wrong instinct — it either pushes you into unscoped refactoring or makes you feel like your PR is bad when it isn't. The real bar is "doesn't make it worse," and that's a claim you have to *prove*, not assert. I got burned once by trusting tooling blindly: the first time pre-commit's `ruff --fix`/black ran on my staged files, it silently reformatted `hybrid.py` and `vector_store.py` methods I never touched — zip() calls got `strict=` added, unrelated dict literals got rewrapped. Because I'd staged before the hooks ran, I could `git restore` back to the index and recover, but if I'd staged after, that scope creep would have gone straight into my commit unnoticed. I don't take a linter's autofix as harmless anymore — I diff it.
+
+**How did AI tools help — and where did they fall short?**
+Claude Code was strongest at the parts that are tedious but mechanical once you know what to check: tracing the delete path across `api/routes/profiles.py` → `profile_service.py` → `vector_store.py`/`hybrid.py`, writing PLAN.md's six sections against the actual file structure instead of generic advice, generating test fixtures that matched the existing mocking style in `tests/unit/`, and — the part I'd have been most tempted to skip by hand — actually diffing failing-test lists and mypy/ruff output against `main` before and after my change, twice, to back up the "pre-existing, not mine" claim with evidence instead of a guess. It fell short anywhere a real judgment call was needed: whether to commit SQL-first or Chroma-first on failure was a tradeoff about acceptable risk, not something to delegate; catching that the linter's autofix had wandered into unrelated code needed someone reading the diff, not just running the tool; and opening the actual PR needed my own GitHub login through a browser — no amount of tooling substitutes for the account being mine.
+
+**What would you do differently if you started over?**
+I'd budget time in Week 7–8 to characterize the environment itself — run `make check`/`make test-unit` on a clean checkout of `main` before touching anything, and keep that baseline written down — instead of rediscovering "oh, this already failed before I got here" separately in Week 8 (mypy) and again in Week 9 (ruff/black/mypy across three files, plus the whole-repo `make check`/`make typecheck` breakage). I had the right instinct each time, but I re-derived it from scratch instead of building on the first finding. I'd also open the draft PR earlier in Week 9 rather than at the very end — not because feedback was actually going to come this term, but because "PR open" surfaced the exact gap (Check-in 2 still full of placeholders) that I only caught when reviewing the checklist directly.
+
+**What are you most proud of from this module?**
+Not the fix itself — it's genuinely small. I'm proud of the discipline around the pre-existing-failure claim: not fixing unrelated code to make the numbers look clean, not silently `--no-verify`-ing past everything either, but actually verifying line-for-line what existed before my change and writing that verification into the commit messages and PR description where a reviewer can check it themselves. That's the difference between "trust me, it's not my bug" and something a maintainer can actually audit.
